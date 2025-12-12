@@ -1,4 +1,4 @@
-name: Check and Build n8n-ffmpeg Image
+name: Check, Build, and Push n8n-ffmpeg Image
 
 on:
   # Manual trigger
@@ -8,11 +8,17 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+# Set permissions for GITHUB_TOKEN to allow pushing to GHCR
+permissions:
+  contents: read
+  packages: write
+
 env:
   DOCKER_USER: shlomip
   IMAGE_NAME: n8n-ffmpeg
   N8N_REPO: n8n-io/n8n
-  DOCKER_REGISTRY: https://registry.hub.docker.com/v2
+  DOCKER_REGISTRY_URL: https://registry.hub.docker.com/v2
+  GHCR_REGISTRY_URL: ghcr.io
 
 jobs:
   build_and_push:
@@ -46,7 +52,7 @@ jobs:
         env:
           TARGET_TAG: ${{ steps.get_version.outputs.LATEST_VERSION }}
           # Docker Hub check URL for the specific tag
-          CHECK_URL: ${{ env.DOCKER_REGISTRY }}/repositories/${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}/tags/${{ steps.get_version.outputs.LATEST_VERSION }}
+          CHECK_URL: ${{ env.DOCKER_REGISTRY_URL }}/repositories/${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}/tags/${{ steps.get_version.outputs.LATEST_VERSION }}
         run: |
           echo "🔍 Checking for existing tag: ${{ env.TARGET_TAG }}"
           
@@ -63,36 +69,44 @@ jobs:
             echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
           fi
           
-      - name: Log in to Docker Hub (Conditional)
-        # Only execute the login step if the tag does NOT exist
-        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
+      - name: Conditional Build Check
+        # Exit the job gracefully if the tag already exists, avoiding further steps
+        if: steps.check_tag.outputs.TAG_EXISTS == 'true'
+        run: |
+          echo "Skipping build and push as version ${{ steps.get_version.outputs.LATEST_VERSION }} already exists on Docker Hub."
+          exit 0 # Exit successfully
+
+      # --- Steps below run ONLY if TAG_EXISTS is 'false' ---
+
+      - name: Log in to Docker Hub and GHCR
         uses: docker/login-action@v3
         with:
+          # Login for Docker Hub
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+          # Login for GitHub Container Registry (GHCR) using the built-in GITHUB_TOKEN
+          registry: ${{ env.GHCR_REGISTRY_URL }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Docker Buildx (Conditional)
-        # Only execute this step if the tag does NOT exist
-        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
+
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push Docker image (Conditional)
+      - name: Build and Push Docker image to both Registries
         id: docker_build
-        # Only execute the build and push if the tag does NOT exist
-        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: |
+            # Tags for Docker Hub (shlomip/n8n-ffmpeg:tag)
             ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.LATEST_VERSION }}
-          # Enable GitHub Actions caching for faster subsequent builds
+            # Tags for GitHub Container Registry (ghcr.io/owner/repo/n8n-ffmpeg:tag)
+            ${{ env.GHCR_REGISTRY_URL }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.GHCR_REGISTRY_URL }}/${{ github.repository }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.LATEST_VERSION }}
+          # Enable GitHub Actions caching
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Skip message
-        # Display a clear message if the workflow was skipped
-        if: steps.check_tag.outputs.TAG_EXISTS == 'true'
-        run: echo "Skipping build and push as version ${{ steps.get_version.outputs.LATEST_VERSION }} already exists on Docker Hub."
