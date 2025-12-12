@@ -1,0 +1,75 @@
+name: Check and Build n8n-ffmpeg Image
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+
+  # Automatic run once a day, at 00:00 UTC
+  schedule:
+    - cron: '0 0 * * *'
+
+env:
+  DOCKER_USER: shlomip
+  IMAGE_NAME: n8n-ffmpeg
+  N8N_REPO: n8n-io/n8n
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch latest n8n version
+        id: get_version
+        run: |
+          # Fetch the version marked as "Latest" by GitHub
+          LATEST_TAG=$(curl -s https://api.github.com/repos/${{ env.N8N_REPO }}/releases/latest | \
+              jq -r '.tag_name')
+          
+          # Remove the 'n8n@' prefix (e.g., n8n@1.33.1 -> 1.33.1)
+          LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^n8n@//')
+          
+          if [[ "$LATEST_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Latest n8n version is $LATEST_VERSION"
+            # Set the version as an output variable for later use
+            echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "Error: Could not determine latest n8n version or format is invalid: $LATEST_VERSION"
+            exit 1
+          fi
+
+      - name: Log in to Docker Hub
+        # Log into Docker Hub using secrets for authentication
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        # Required for multi-architecture builds and caching
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker image
+        id: docker_build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.LATEST_VERSION }}
+          # Enable GitHub Actions caching for faster subsequent builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image push
+        run: |
+          # Check if the build-push action successfully pushed the image
+          if [ "${{ steps.docker_build.outputs.pushed }}" = "true" ]; then
+            echo "✅ Image pushed successfully to Docker Hub."
+          else
+            echo "⚠️  Image may not have been pushed (e.g., if version already existed and no changes were detected)."
+          fi
