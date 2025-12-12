@@ -12,6 +12,7 @@ env:
   DOCKER_USER: shlomip
   IMAGE_NAME: n8n-ffmpeg
   N8N_REPO: n8n-io/n8n
+  DOCKER_REGISTRY: https://registry.hub.docker.com/v2
 
 jobs:
   build_and_push:
@@ -33,26 +34,52 @@ jobs:
           
           if [[ "$LATEST_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Latest n8n version is $LATEST_VERSION"
-            # Set the version as an output variable for later use
+            # Set the version as an output variable
             echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_OUTPUT
           else
             echo "Error: Could not determine latest n8n version or format is invalid: $LATEST_VERSION"
             exit 1
           fi
 
-      - name: Log in to Docker Hub
-        # Log into Docker Hub using secrets for authentication
+      - name: Check if version tag already exists on Docker Hub
+        id: check_tag
+        env:
+          TARGET_TAG: ${{ steps.get_version.outputs.LATEST_VERSION }}
+          # Docker Hub check URL for the specific tag
+          CHECK_URL: ${{ env.DOCKER_REGISTRY }}/repositories/${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}/tags/${{ steps.get_version.outputs.LATEST_VERSION }}
+        run: |
+          echo "🔍 Checking for existing tag: ${{ env.TARGET_TAG }}"
+          
+          # Use curl and check the HTTP status code (200 = Exists, 404 = Not found)
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.CHECK_URL }})
+          
+          if [ "$STATUS_CODE" == "200" ]; then
+            echo "⚠️  Version ${{ env.TARGET_TAG }} already exists on Docker Hub (Status 200)."
+            # Set an output indicating the tag exists
+            echo "TAG_EXISTS=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Version ${{ env.TARGET_TAG }} does not exist on Docker Hub (Status $STATUS_CODE). Proceeding with build."
+            # Set an output indicating the tag does not exist
+            echo "TAG_EXISTS=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Log in to Docker Hub (Conditional)
+        # Only execute the login step if the tag does NOT exist
+        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Set up Docker Buildx
-        # Required for multi-architecture builds and caching
+      - name: Set up Docker Buildx (Conditional)
+        # Only execute this step if the tag does NOT exist
+        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push Docker image
+      - name: Build and Push Docker image (Conditional)
         id: docker_build
+        # Only execute the build and push if the tag does NOT exist
+        if: steps.check_tag.outputs.TAG_EXISTS == 'false'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -65,11 +92,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify image push
-        run: |
-          # Check if the build-push action successfully pushed the image
-          if [ "${{ steps.docker_build.outputs.pushed }}" = "true" ]; then
-            echo "✅ Image pushed successfully to Docker Hub."
-          else
-            echo "⚠️  Image may not have been pushed (e.g., if version already existed and no changes were detected)."
-          fi
+      - name: Skip message
+        # Display a clear message if the workflow was skipped
+        if: steps.check_tag.outputs.TAG_EXISTS == 'true'
+        run: echo "Skipping build and push as version ${{ steps.get_version.outputs.LATEST_VERSION }} already exists on Docker Hub."
