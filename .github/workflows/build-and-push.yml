@@ -115,11 +115,16 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          # CRITICAL FIX: Pass the N8N_VERSION as a build argument
+          build-args: |
+            N8N_VERSION=${{ steps.get_version.outputs.LATEST_VERSION }}
           tags: |
             ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.DOCKER_USER }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.LATEST_VERSION }}
             ${{ env.GHCR_REGISTRY_URL }}/${{ steps.repo_lowercase.outputs.REPO_LOWER }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.GHCR_REGISTRY_URL }}/${{ steps.repo_lowercase.outputs.REPO_LOWER }}/${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.LATEST_VERSION }}
+          # Optional: Add multi-platform support (uncomment if needed)
+          # platforms: linux/amd64,linux/arm64
           # Enable GitHub Actions caching
           cache-from: type=gha
           cache-to: type=gha,mode=max
