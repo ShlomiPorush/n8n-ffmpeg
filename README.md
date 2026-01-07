@@ -21,7 +21,7 @@ docker run -it --rm \
     --name n8n-ffmpeg \
     -p 5678:5678 \
     -v n8n_data:/home/node/.n8n \
-    shlomip/n8n-ffmpeg:latest
+    ghcr.io/shlomiporush/n8n-ffmpeg/n8n-ffmpeg:latest
 ```
 
   * **`shlomip/n8n-ffmpeg:latest`**: Your designated image name.
@@ -37,7 +37,7 @@ Using Docker Compose simplifies deployment and management.
 ```yaml
 services:
   n8n:
-    image: shlomip/n8n-ffmpeg:latest
+    image: ghcr.io/shlomiporush/n8n-ffmpeg/n8n-ffmpeg:latest
     container_name: n8n-ffmpeg
     restart: always
     ports:
