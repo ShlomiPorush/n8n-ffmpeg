@@ -1,15 +1,25 @@
-FROM n8nio/n8n:latest
+# Multi-stage build to restore apk-tools and install ffmpeg
+ARG N8N_VERSION=latest
+FROM n8nio/n8n:${N8N_VERSION} as base
 
-# Switch to root to install packages
+# First stage: get apk-tools from Alpine
+FROM alpine:3.20 as tools
+RUN apk add --no-cache apk-tools
+
+# Final stage: use n8n image and add apk-tools back
+FROM base
 USER root
 
-# Update package list and install dependencies
-RUN apk update && \
-    apk add --no-cache ffmpeg curl python3
+# Copy apk-tools from the tools stage
+COPY --from=tools /sbin/apk /sbin/apk
+COPY --from=tools /lib/apk /lib/apk
+COPY --from=tools /lib/libapk.so.* /lib/
+COPY --from=tools /usr/lib/libz.so.* /usr/lib/
 
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-    -o /usr/local/bin/yt-dlp && \
-    chmod +x /usr/local/bin/yt-dlp
+# Install ffmpeg and other dependencies
+RUN apk update && \
+    apk add --no-cache ffmpeg curl python3 && \
+    rm -rf /var/cache/apk/*
 
 # Switch back to node user for security
 USER node
