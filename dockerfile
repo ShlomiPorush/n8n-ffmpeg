@@ -1,30 +1,16 @@
-# Multi-stage build to restore apk-tools and install ffmpeg
-ARG N8N_VERSION=latest
-FROM n8nio/n8n:${N8N_VERSION} as base
+ARG N8N_VERSION
+FROM n8nio/n8n:${N8N_VERSION:-latest}-alpine
 
-# First stage: get apk-tools from Alpine
-FROM alpine:3.20 as tools
-RUN apk add --no-cache apk-tools
-
-# Final stage: use n8n image and add apk-tools back
-FROM base
+# Switch to root to have permissions for installation
 USER root
 
-# Copy apk-tools from the tools stage
-COPY --from=tools /sbin/apk /sbin/apk
-COPY --from=tools /lib/apk /lib/apk
-COPY --from=tools /lib/libapk.so.* /lib/
-COPY --from=tools /usr/lib/libz.so.* /usr/lib/
+# Install dependencies
+# Using --no-cache is a Docker best practice to keep the image small
+RUN apk add --no-cache ffmpeg curl python3
 
-# Install ffmpeg and other dependencies
-RUN apk update && \
-    apk add --no-cache ffmpeg curl python3 && \
-    rm -rf /var/cache/apk/*
-
-# Switch back to node user for security
+# Important: switch back to the original user defined in the official image
 USER node
 
-# Add labels for better documentation
-LABEL maintainer="shlomi"
-LABEL description="n8n with FFmpeg"
-LABEL version="1.0"
+# Labels for your own tracking
+LABEL maintainer="shlomip"
+LABEL description="n8n extended with FFmpeg"
